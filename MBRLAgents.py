@@ -18,16 +18,36 @@ class DynaAgent:
         self.learning_rate = learning_rate
         self.gamma = gamma
         # TO DO: Initialize relevant elements
+
+        # n over here, represents the number of times action a has been taken in state s
+        self.Q_sa = np.zeros((n_states, n_actions))
+        self.n = np.zeros((n_states, n_actions, n_states))
+        self.Rsum = np.zeros((n_states, n_actions, n_states))
         
-        
+
     def select_action(self, s, epsilon):
         # TO DO: Change this to e-greedy action selection
-        a = np.random.randint(0,self.n_actions) # Replace this with correct action selection
-        return a
+        if np.random.random() < self.epsilon:
+            return np.random.randint(self.n_actions)
+        else:
+            q_values = self.Q_sa[s, :]
+            max_q = np.max(q_values)
+            max_actions = np.where(q_values == max_q)[0]
+            return np.random.choice(max_actions)
         
+
     def update(self,s,a,r,done,s_next,n_planning_updates):
         # TO DO: Add Dyna update
-        pass
+
+        self.n[s, a, s_next] += 1
+        self.Rsum[s, a, s_next] += r
+        if done:
+            target = r
+        else:
+            max_next_q = np.max(self.Q[s_next, :])
+            target = r + self.gamma * max_next_q
+        self.Q_sa[s, a] += self.alpha * (target - self.Q[s, a])
+        
 
     def evaluate(self,eval_env,n_eval_episodes=30, max_episode_length=100):
         returns = []  # list to store the reward per episode
@@ -45,6 +65,33 @@ class DynaAgent:
             returns.append(R_ep)
         mean_return = np.mean(returns)
         return mean_return
+    
+
+    def transition_pobability(self, s, a, s_next):
+        total = np.sum(self.n[s, a])
+        return self.n[s, a, s_next] / total
+        
+
+    def reward_estimate(self, s, a, s_next):
+        total = np.sum(self.n[s, a])
+        return self.Rsum[s, a, s_next] / total
+        
+
+    def planning_step(self, n_planning_updates):   
+        for _ in range(n_planning_updates):
+            s = np.random.randint(self.n_states)
+            a_visited = []
+            for a in self.n[s]:
+                if np.sum(self.n[s, a]) == 0:
+                    a_visited.append(a)
+            a = a_visited[np.random.randint(len(a_visited))]
+            p = self.transition_probability(s, a) 
+            r = self.reward_estimate(s, a, s_next)
+            for s_next in range(self.n_states):
+                if p[s_next] > 0:
+                    self.update(s, a, r, False, s_next, 1)
+
+
 
 class PrioritizedSweepingAgent:
 
