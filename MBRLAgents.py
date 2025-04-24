@@ -12,42 +12,62 @@ from MBRLEnvironment import WindyGridworld
 
 class DynaAgent:
 
-    def __init__(self, n_states, n_actions, learning_rate, gamma):
+    def __init__(self, n_states, n_actions, learning_rate, gamma): # epsilon at 1 = random policy
         self.n_states = n_states
         self.n_actions = n_actions
-        self.learning_rate = learning_rate
+        self.alpha = learning_rate
         self.gamma = gamma
         # TO DO: Initialize relevant elements
 
         # n over here, represents the number of times action a has been taken in state s
         self.Q_sa = np.zeros((n_states, n_actions))
-        self.n = np.zeros((n_states, n_actions, n_states))
-        self.Rsum = np.zeros((n_states, n_actions, n_states))
-        
+        self.n = np.zeros((n_states, n_actions, n_states)) # s,a,s' - number of visits
+        self.Rsum = np.zeros((n_states, n_actions, n_states)) # s,a,s' - total reward
 
     def select_action(self, s, epsilon):
-        # TO DO: Change this to e-greedy action selection
-        if np.random.random() < self.epsilon:
+        if np.random.random() < epsilon:
             return np.random.randint(self.n_actions)
         else:
-            q_values = self.Q_sa[s, :]
-            max_q = np.max(q_values)
-            max_actions = np.where(q_values == max_q)[0]
-            return np.random.choice(max_actions)
+            max_q = np.max(self.Q_sa[s, :])
+            max_actions = np.where(self.Q_sa[s, :] == max_q)[0] # select all actions that have the best performance
+            return np.random.choice(max_actions) 
         
 
     def update(self,s,a,r,done,s_next,n_planning_updates):
-        # TO DO: Add Dyna update
+        # NOTE: done means s!=goal (otherwise no a), thus we update the same way (Q_sa(a) will be 0)
+        # Direct Learning
 
+        self.Q_sa[s, a] += self.alpha * ((r + self.gamma * np.max(self.Q_sa[s_next, :])) - self.Q_sa[s, a]) # greedy action selection, as evaluation is done that way
+
+        # Indirect Learning
+            # Model Learning - only Rsum and n needed to understand all of model - Transition and reward function
         self.n[s, a, s_next] += 1
         self.Rsum[s, a, s_next] += r
-        if done:
-            target = r
-        else:
-            max_next_q = np.max(self.Q[s_next, :])
-            target = r + self.gamma * max_next_q
-        self.Q_sa[s, a] += self.alpha * (target - self.Q[s, a])
+
+            # Planning         
+        for plan in range(n_planning_updates):
+            p_s = np.random.randint(0,self.n_states) # randomly select a state, planning_state
+            visited_actions = [act for act in range(len(self.n[p_s])) if np.sum(self.n[p_s, act]) != 0] # a is the rows of n[s], so range of length are the actions themselves
+            if visited_actions: # There exists at least 1 action
+                p_a = np.random.choice(visited_actions) # All states have the same number of actions
+
+                p_s_next = self.transition_to(p_s, p_a)
+                p_r = self.reward_estimate(p_s, p_a, p_s_next)
+                self.Q_sa[p_s, p_a] += self.alpha * ((p_r + self.gamma * np.max(self.Q_sa[p_s_next, :])) - self.Q_sa[p_s, p_a]) # Indirect update
+
+    def transition_to(self, s, a):
+        return np.random.choice(range(self.n_states), p=self.n[s, a]/np.sum(self.n[s, a])) # Select next state given the transition probabilities
+                                                                                        # transition prob are found by dividing number of visits by all visits 
+    
+    # This can be optimized by only considering the 4 adjacent possitions
+
+    # def transition_estimate(self, s, a, s_next):
+    #     total = np.sum(self.n[s, a])
+    #     return self.n[s, a, s_next] / total
         
+    def reward_estimate(self, s, a, s_next):
+        total = np.sum(self.n[s, a])
+        return self.Rsum[s, a, s_next] / total
 
     def evaluate(self,eval_env,n_eval_episodes=30, max_episode_length=100):
         returns = []  # list to store the reward per episode
@@ -64,33 +84,7 @@ class DynaAgent:
                     s = s_prime
             returns.append(R_ep)
         mean_return = np.mean(returns)
-        return mean_return
-    
-
-    def transition_pobability(self, s, a, s_next):
-        total = np.sum(self.n[s, a])
-        return self.n[s, a, s_next] / total
-        
-
-    def reward_estimate(self, s, a, s_next):
-        total = np.sum(self.n[s, a])
-        return self.Rsum[s, a, s_next] / total
-        
-
-    def planning_step(self, n_planning_updates):   
-        for _ in range(n_planning_updates):
-            s = np.random.randint(self.n_states)
-            a_visited = []
-            for a in self.n[s]:
-                if np.sum(self.n[s, a]) == 0:
-                    a_visited.append(a)
-            a = a_visited[np.random.randint(len(a_visited))]
-            p = self.transition_probability(s, a) 
-            r = self.reward_estimate(s, a, s_next)
-            for s_next in range(self.n_states):
-                if p[s_next] > 0:
-                    self.update(s, a, r, False, s_next, 1)
-
+        return mean_return        
 
 
 class PrioritizedSweepingAgent:
@@ -98,27 +92,67 @@ class PrioritizedSweepingAgent:
     def __init__(self, n_states, n_actions, learning_rate, gamma, priority_cutoff=0.01):
         self.n_states = n_states
         self.n_actions = n_actions
-        self.learning_rate = learning_rate
+        self.alpha = learning_rate
         self.gamma = gamma
         self.priority_cutoff = priority_cutoff
         self.queue = PriorityQueue()
         # TO DO: Initialize relevant elements
         
+        self.Q_sa = np.zeros((n_states, n_actions))
+        self.n = np.zeros((n_states, n_actions, n_states))
+        self.Rsum = np.zeros((n_states, n_actions, n_states))
+
+        
     def select_action(self, s, epsilon):
-        # TO DO: Change this to e-greedy action selection
-        a = np.random.randint(0,self.n_actions) # Replace this with correct action selection
-        return a
+        if np.random.random() < epsilon:
+            return np.random.randint(self.n_actions)
+        else:
+            max_q = np.max(self.Q_sa[s, :])
+            max_actions = np.where(self.Q_sa[s, :] == max_q)[0]
+            return np.random.choice(max_actions) 
         
     def update(self,s,a,r,done,s_next,n_planning_updates):
+        # NOTE: done means s!=goal (otherwise no a), thus we update the same way (Q_sa(a) will be 0)
+        # Direct Learning
+        self.learning(s,a,r,s_next)
+
+        # Indirect Learning
+            # Model Learning - only Rsum and n needed to understand all of model - Transition and reward function
+        self.n[s, a, s_next] += 1
+        self.Rsum[s, a, s_next] += r
+
+            # Planning         
+        counter = 0
+        while not self.queue.empty() and counter < n_planning_updates: # if no more q or already reached the maximum number of updates through planning
+
+                # Update
+            p_s, p_a = self.queue.get()
+            p_s_next = self.transition_to(p_s, p_a)
+            p_r = self.reward_estimate(p_s, p_a, p_s_next)
+            self.Q_sa[p_s, p_a] += self.alpha * ((p_r + self.gamma * np.max(self.Q_sa[p_s_next, :])) - self.Q_sa[p_s, p_a]) # Indirect update
+                
+                # Backtrack
+            for b_p_s in range(self.n_states): # backtracking_planning_state
+                for b_p_a in range(self.n_actions):
+                    if self.n[b_p_s, b_p_a, p_s] != 0: # as states are represented atomically, we can use s to access the number of times other s and a lead to the current s
+                        # Update backtrack
+                        b_p_r = self.reward_estimate(b_p_s, b_p_a, p_s)
+                        self.learning(b_p_s, b_p_a, b_p_r, p_s)
+            counter +=1
+
+    def learning(self, s, a, r, s_next):
+        difference = r + self.gamma * np.max(self.Q_sa[s_next, :])
+        self.Q_sa[s, a] += self.alpha * (difference - self.Q_sa[s, a]) # greedy action selection, as evaluation is done that way
+        if abs(difference) > self.priority_cutoff: # abs of difference because change can be negative
+            self.queue.put((s, a))
+
+    def transition_to(self, s, a):
+        return np.random.choice(range(self.n_states), p=self.n[s, a]/np.sum(self.n[s, a])) # Select next state given the transition probabilities
+                                                                                           # transition prob are found by dividing number of visits by all visits 
         
-        # TO DO: Add Prioritized Sweeping code
-        
-        # Helper code to work with the queue
-        # Put (s,a) on the queue with priority p (needs a minus since the queue pops the smallest priority first)
-        # self.queue.put((-p,(s,a))) 
-        # Retrieve the top (s,a) from the queue
-        # _,(s,a) = self.queue.get() # get the top (s,a) for the queue
-        pass
+    def reward_estimate(self, s, a, s_next):
+        total = np.sum(self.n[s, a])
+        return self.Rsum[s, a, s_next] / total
 
     def evaluate(self,eval_env,n_eval_episodes=30, max_episode_length=100):
         returns = []  # list to store the reward per episode
@@ -143,7 +177,7 @@ def test():
     gamma = 1.0
 
     # Algorithm parameters
-    policy = 'dyna' # or 'ps' 
+    policy = 'ps' # dyna' or 'ps' 
     epsilon = 0.1
     learning_rate = 0.2
     n_planning_updates = 3
