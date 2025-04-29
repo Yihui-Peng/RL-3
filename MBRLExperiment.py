@@ -22,7 +22,7 @@ n_repetitions = 20
 gamma = 1.0
 learning_rate = 0.2
 epsilon = 0.1
-smooth_window = 9
+smooth_window = 5
 
 planning_list = [0, 1, 3, 5]
 wind_cases = {
@@ -95,6 +95,7 @@ def experiment():
     runtime_table = []
 
     best_curves = {}  # store best performing curve for comparison
+    q_learning_curves = {}
 
     for alg_name, AgentCls in agent_map.items():
         for wind_case, wind_prop in wind_cases.items():
@@ -109,6 +110,9 @@ def experiment():
                 mean_curve, avg_rt = run_batch(AgentCls, wind_prop, n_plan)
                 curves[label] = mean_curve
                 runtime_table.append((alg_name, wind_case, n_plan, avg_rt))
+
+                if n_plan == 0 and alg_name == "dyna":
+                    q_learning_curves[wind_case] = mean_curve
 
                 if mean_curve[-1] > best_final and n_plan > 0:
                     best_final = mean_curve[-1]
@@ -128,7 +132,8 @@ def experiment():
             if (alg_name, wind_case) in best_curves:
                 label, curve = best_curves[(alg_name, wind_case)]
                 comp_curves[f"{alg_name.upper()} ({label})"] = curve
-        comp_curves["Q-learning"] = run_batch(DynaAgent, wind_cases[wind_case], 0)[0]
+                
+        comp_curves["Q-learning"] = q_learning_curves[wind_case]
         fname = f"compare_{wind_case}.png"
         make_plot(f"Best comparison — {wind_case}", steps_axis, comp_curves, fname)
 
@@ -142,3 +147,14 @@ def experiment():
 
 if __name__ == "__main__":
     experiment()
+
+
+
+# dyna stocastic k=0 should be on the top
+
+# check whether we have the right variation.
+
+# ps q learning one should be on the top, at least learn something, both deterministic and stochastic
+
+# comparison graph, the Q learning curve should be on the top always, at the end
+
