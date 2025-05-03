@@ -105,7 +105,7 @@ def experiment():
             best_final = -np.inf
 
             for n_plan in planning_list:
-                label = f"K={n_plan}" if n_plan > 0 else "Q-learning"
+                label = f"K={n_plan}" if n_plan > 0 else "K=0"
                 print(f"Running {alg_name} | {wind_case} | {label} …")
                 mean_curve, avg_rt = run_batch(AgentCls, wind_prop, n_plan)
                 curves[label] = mean_curve
@@ -132,7 +132,7 @@ def experiment():
             if (alg_name, wind_case) in best_curves:
                 label, curve = best_curves[(alg_name, wind_case)]
                 comp_curves[f"{alg_name.upper()} ({label})"] = curve
-                
+
         comp_curves["Q-learning"] = q_learning_curves[wind_case]
         fname = f"compare_{wind_case}.png"
         make_plot(f"Best comparison — {wind_case}", steps_axis, comp_curves, fname)

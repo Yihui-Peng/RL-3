@@ -112,24 +112,26 @@ class PrioritizedSweepingAgent:
 
 
     def update(self, s, a, r, done, s_next, n_planning_updates):
+        # Direct TD update (Q-learning baseline)
+        target = r if done else r + self.gamma * self.Q_sa[s_next].max()
+        self.Q_sa[s, a] += self.alpha * (target - self.Q_sa[s, a])
+    
         # Model update
         self.n[s, a, s_next] += 1
         self.R_sum[s, a, s_next]   += r
         self.predecessors[s_next].add((s, a))
 
-        # Push current (s,a) onto queue with priority 
-        target = r if done else r + self.gamma * self.Q_sa[s_next].max()
+        # Queue update
         p = abs(target - self.Q_sa[s, a])
         if p > self.priority_cutoff:
-            self.queue.put((-p, (s, a)))  # negative because PriorityQueue is min-heap
+            self.queue.put((-p, (s, a)))
 
-        # Planning
+        # Planning phase
         for _ in range(n_planning_updates):
             if self.queue.empty():
                 break
             _, (s_p, a_p) = self.queue.get()
 
-            # Sample s′ from model of (s_p,a_p)
             counts = self.n[s_p, a_p]
             total = counts.sum()
             if total == 0:
@@ -138,12 +140,10 @@ class PrioritizedSweepingAgent:
             s_p_next = np.random.choice(self.n_states, p=probs)
             r_hat = self.R_sum[s_p, a_p, s_p_next] / max(1, counts[s_p_next])
 
-            # Q update
             target_p = r_hat + self.gamma * self.Q_sa[s_p_next].max()
             delta = target_p - self.Q_sa[s_p, a_p]
             self.Q_sa[s_p, a_p] += self.alpha * delta
 
-            # Propagate to predecessors of s_p
             for s_pre, a_pre in self.predecessors[s_p]:
                 counts_pa = self.n[s_pre, a_pre, s_p]
                 if counts_pa == 0:
