@@ -10,6 +10,41 @@ from queue import PriorityQueue
 from MBRLEnvironment import WindyGridworld
 
 
+class QLearningAgent:
+    def __init__(self, n_states, n_actions, learning_rate, gamma):
+        self.n_states = n_states
+        self.n_actions = n_actions
+        self.alpha = learning_rate
+        self.gamma = gamma
+        self.Q_sa = np.zeros((n_states, n_actions))
+
+    def select_action(self, s, epsilon):
+        if np.random.rand() < epsilon:
+            return np.random.randint(self.n_actions)
+        else:
+            max_q = np.max(self.Q_sa[s])
+            return np.random.choice(np.flatnonzero(self.Q_sa[s] == max_q))
+
+    def update(self, s, a, r, done, s_next, n_planning_updates=0):
+        target = r if done else r + self.gamma * self.Q_sa[s_next].max()
+        self.Q_sa[s, a] += self.alpha * (target - self.Q_sa[s, a])
+
+    def evaluate(self, eval_env: WindyGridworld, n_eval_episodes=30, max_episode_length=100):
+        returns = []
+        for _ in range(n_eval_episodes):
+            s = eval_env.reset()
+            R_ep = 0
+            for _ in range(max_episode_length):
+                a = np.argmax(self.Q_sa[s])
+                s_prime, reward, done = eval_env.step(a)
+                R_ep += reward
+                if done:
+                    break
+                s = s_prime
+            returns.append(R_ep)
+        return float(np.mean(returns))
+    
+    
 class DynaAgent:
 
     def __init__(self, n_states, n_actions, learning_rate, gamma): # epsilon at 1 = random policy
