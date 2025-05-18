@@ -1,53 +1,11 @@
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-"""
-Model-based Reinforcement Learning policies
-Practical for course 'Reinforcement Learning',
-Bachelor AI, Leiden University, The Netherlands
-"""
 import numpy as np
 from queue import PriorityQueue
 from MBRLEnvironment import WindyGridworld
 
 
-class QLearningAgent:
-    def __init__(self, n_states, n_actions, learning_rate, gamma):
-        self.n_states = n_states
-        self.n_actions = n_actions
-        self.alpha = learning_rate
-        self.gamma = gamma
-        self.Q_sa = np.zeros((n_states, n_actions))
-
-    def select_action(self, s, epsilon):
-        if np.random.rand() < epsilon:
-            return np.random.randint(self.n_actions)
-        else:
-            max_q = np.max(self.Q_sa[s])
-            return np.random.choice(np.flatnonzero(self.Q_sa[s] == max_q))
-
-    def update(self, s, a, r, done, s_next, n_planning_updates=0):
-        target = r if done else r + self.gamma * self.Q_sa[s_next].max()
-        self.Q_sa[s, a] += self.alpha * (target - self.Q_sa[s, a])
-
-    def evaluate(self, eval_env: WindyGridworld, n_eval_episodes=30, max_episode_length=100):
-        returns = []
-        for _ in range(n_eval_episodes):
-            s = eval_env.reset()
-            R_ep = 0
-            for _ in range(max_episode_length):
-                a = np.argmax(self.Q_sa[s])
-                s_prime, reward, done = eval_env.step(a)
-                R_ep += reward
-                if done:
-                    break
-                s = s_prime
-            returns.append(R_ep)
-        return float(np.mean(returns))
-    
-    
 class DynaAgent:
 
-    def __init__(self, n_states, n_actions, learning_rate, gamma): # epsilon at 1 = random policy
+    def __init__(self, n_states: int, n_actions: int, learning_rate: float, gamma: float):
         self.n_states = n_states
         self.n_actions = n_actions
         self.alpha = learning_rate
@@ -57,70 +15,74 @@ class DynaAgent:
         # n over here, represents the number of times action a has been taken in state s
         self.Q_sa = np.zeros((n_states, n_actions))
         self.n = np.zeros((n_states, n_actions, n_states)) # s,a,s' - number of visits
-        self.R_sum = np.zeros((n_states, n_actions, n_states)) # s,a,s' - total reward
+        self.Rsum = np.zeros((n_states, n_actions, n_states)) # s,a,s' - total reward
 
-        # Memory of observed (s,a) pairs for planning
-        self.observed_sa = []              # list[(s,a)]
-        self._seen_mask  = np.zeros((n_states, n_actions), dtype=bool)
-
-    def select_action(self, s, epsilon):
-        if np.random.random() < epsilon:
+    def select_action(self, s: int, epsilon: float):
+        if np.random.rand() < epsilon:
             return np.random.randint(self.n_actions)
         else:
-            max_q = np.max(self.Q_sa[s, :])
-            max_actions = np.where(self.Q_sa[s, :] == max_q)[0] # select all actions that have the best performance
-            return np.random.choice(max_actions) 
+            max_q = np.max(self.Q_sa[s])
+            max_actions = np.where(self.Q_sa[s] == max_q)[0]
+            return np.random.choice(max_actions)
 
-    def update(self, s, a, r, done, s_next, n_planning_updates):
-        # Model update
+    def update(self, s: int, a: int, r: float, done: bool, s_next: int, n_planning_updates: int):
+        # Direct (real) TD update -------------------------------------------
+        target = r if done else r + self.gamma * np.max(self.Q_sa[s_next])
+        td_error = target - self.Q_sa[s, a]
+        self.Q_sa[s, a] += self.alpha * td_error
+
+        # Model learning (update counts and reward sums) -------------------
         self.n[s, a, s_next] += 1
-        self.R_sum[s, a, s_next]   += r
+        self.Rsum[s, a, s_next] += r
 
-        if not self._seen_mask[s, a]:
-            self.observed_sa.append((s, a))
-            self._seen_mask[s, a] = True
+        # Planning updates -------------------------------------------------
+        # Pre‑compute sets of visited (s,a) for uniform sampling
+        visited_state_mask = np.sum(self.n, axis=(1, 2)) > 0
+        visited_states = np.where(visited_state_mask)[0]
+        if visited_states.size == 0:
+            return  # nothing to plan yet
 
-        # Direct TD update on real transition
-        target = r if done else r + self.gamma * self.Q_sa[s_next].max()
-        self.Q_sa[s, a] += self.alpha * (target - self.Q_sa[s, a])
-
-        # Planning updates
-        if n_planning_updates == 0 or not self.observed_sa:
-            return
-
+        # I put the transition_to and reward_estimate inside the planning loop ----------------
         for _ in range(n_planning_updates):
-            s_p, a_p = self.observed_sa[np.random.randint(len(self.observed_sa))]
-
-            counts = self.n[s_p, a_p]
-            total  = counts.sum()
+            # 1) sample previously observed state
+            p_s = np.random.choice(visited_states)
+            # 2) sample action previously taken in that state
+            visited_actions = np.where(np.sum(self.n[p_s], axis=1) > 0)[0]
+            p_a = np.random.choice(visited_actions)
+            # 3) sample next state from learned transition model
+            trans_counts = self.n[p_s, p_a]
+            total = trans_counts.sum()
             if total == 0:
-                continue  # should not happen, but be safe.
-            probs = counts / total
-            s_p_next = np.random.choice(self.n_states, p=probs)
+                continue  # should not happen but be safe
+            trans_prob = trans_counts / total
+            p_s_next = np.random.choice(len(trans_prob), p=trans_prob)
+            # 4) estimate reward (mean)
+            p_r = self.Rsum[p_s, p_a, p_s_next] / self.n[p_s, p_a, p_s_next]
+            # 5) Q update
+            target_model = p_r + self.gamma * np.max(self.Q_sa[s_next])
+            self.Q_sa[p_s, p_a] += self.alpha * (target_model - self.Q_sa[p_s, p_a])
 
-            r_hat = self.R_sum[s_p, a_p, s_p_next] / max(1, counts[s_p_next])
-            target_p = r_hat + self.gamma * self.Q_sa[s_p_next].max()
-            self.Q_sa[s_p, a_p] += self.alpha * (target_p - self.Q_sa[s_p, a_p])
 
-
-    def evaluate(self, eval_env: WindyGridworld, n_eval_episodes=30, max_episode_length=100):
+    def evaluate(self, eval_env: WindyGridworld, n_eval_episodes: int = 30, max_episode_length: int = 100):
         returns = []
         for _ in range(n_eval_episodes):
             s = eval_env.reset()
             R_ep = 0
             for _ in range(max_episode_length):
-                a = np.argmax(self.Q_sa[s]) # greedy action selection
-                s_prime, reward, done = eval_env.step(a)
-                R_ep += reward
+                a = np.argmax(self.Q_sa[s])  # greedy action
+                s, r, done = eval_env.step(a)
+                R_ep += r
                 if done:
                     break
-                s = s_prime
             returns.append(R_ep)
-        return float(np.mean(returns))
+        return np.mean(returns)
+
+
 
 class PrioritizedSweepingAgent:
 
-    def __init__(self, n_states, n_actions, learning_rate, gamma, priority_cutoff: float = 1e-2):
+    ############ MOD START: __init__ initialises queues and model tables ###
+    def __init__(self, n_states: int, n_actions: int, learning_rate: float, gamma: float, priority_cutoff: float = 0.01):
         self.n_states = n_states
         self.n_actions = n_actions
         self.alpha = learning_rate
@@ -128,122 +90,137 @@ class PrioritizedSweepingAgent:
         self.priority_cutoff = priority_cutoff
         self.queue = PriorityQueue()
         # TO DO: Initialize relevant elements
-
+        
         self.Q_sa = np.zeros((n_states, n_actions))
         self.n = np.zeros((n_states, n_actions, n_states))
-        self.R_sum = np.zeros((n_states, n_actions, n_states))
-
-        # Predecessor graph: predecessors[s′] = set((s,a),…)
-        self.predecessors = [set() for _ in range(n_states)]
+        self.Rsum = np.zeros((n_states, n_actions, n_states))
 
 
-    def select_action(self, s: int, epsilon: float) -> int:
-        if np.random.random() < epsilon:
+    def select_action(self, s: int, epsilon: float):
+        if np.random.rand() < epsilon:
             return np.random.randint(self.n_actions)
         else:
-            max_q = np.max(self.Q_sa[s, :])
-            max_actions = np.where(self.Q_sa[s, :] == max_q)[0]
-            return np.random.choice(max_actions) 
+            max_q = np.max(self.Q_sa[s])
+            max_actions = np.where(self.Q_sa[s] == max_q)[0]
+            return np.random.choice(max_actions)
 
+    def update(self, s: int, a: int, r: float, done: bool, s_next: int, n_planning_updates: int):
+        """Update model, push into priority queue, and perform up to K planning steps."""
+        # Direct (real) TD update -------------------------------------------
+        target = r if done else r + self.gamma * np.max(self.Q_sa[s_next])
+        td_error = target - self.Q_sa[s, a]
+        self.Q_sa[s, a] += self.alpha * td_error
 
-    def update(self, s, a, r, done, s_next, n_planning_updates):
-        # Direct TD update (Q-learning baseline)
-        target = r if done else r + self.gamma * self.Q_sa[s_next].max()
-        self.Q_sa[s, a] += self.alpha * (target - self.Q_sa[s, a])
-    
-        # Model update
+        # Model learning (update counts and reward sums) -------------------
         self.n[s, a, s_next] += 1
-        self.R_sum[s, a, s_next]   += r
-        self.predecessors[s_next].add((s, a))
+        self.Rsum[s, a, s_next] += r
 
-        # Queue update
-        p = abs(target - self.Q_sa[s, a])
-        if p > self.priority_cutoff:
-            self.queue.put((-p, (s, a)))
+        # Insert (s,a) into priority queue if priority large ----------------
+        priority = abs(td_error)
+        if priority > self.priority_cutoff:
+            # Negative priority because PriorityQueue pops smallest first
+            self.queue.put((-priority, (s, a)))
 
-        # Planning phase
-        for _ in range(n_planning_updates):
-            if self.queue.empty():
-                break
-            _, (s_p, a_p) = self.queue.get()
+        #  Planning loop -----------------------------------------
+        planning_counter = 0
+        while not self.queue.empty() and planning_counter < n_planning_updates:
+            _, (p_s, p_a) = self.queue.get()
 
-            counts = self.n[s_p, a_p]
-            total = counts.sum()
+            # Sample model transition & reward
+            trans_counts = self.n[p_s, p_a]
+            total = trans_counts.sum()
             if total == 0:
-                continue
-            probs = counts / total
-            s_p_next = np.random.choice(self.n_states, p=probs)
-            r_hat = self.R_sum[s_p, a_p, s_p_next] / max(1, counts[s_p_next])
+                planning_counter += 1
+                continue  # no data
+            
+            p_s_next = np.random.choice(len(trans_counts), p=trans_counts / total)
+            p_r = self.Rsum[p_s, p_a, p_s_next] / self.n[p_s, p_a, p_s_next]
 
-            target_p = r_hat + self.gamma * self.Q_sa[s_p_next].max()
-            delta = target_p - self.Q_sa[s_p, a_p]
-            self.Q_sa[s_p, a_p] += self.alpha * delta
+            # TD update for sampled pair
+            target_model = p_r + self.gamma * np.max(self.Q_sa[s_next])
+            td_model = target_model - self.Q_sa[p_s, p_a]
+            self.Q_sa[p_s, p_a] += self.alpha * td_model
 
-            for s_pre, a_pre in self.predecessors[s_p]:
-                counts_pa = self.n[s_pre, a_pre, s_p]
-                if counts_pa == 0:
-                    continue
-                r_pre = self.R_sum[s_pre, a_pre, s_p] / counts_pa
-                pred_target = r_pre + self.gamma * self.Q_sa[s_p].max()
-                p_pre = abs(pred_target - self.Q_sa[s_pre, a_pre])
-                if p_pre > self.priority_cutoff:
-                    self.queue.put((-p_pre, (s_pre, a_pre)))
+            # Back‑propagate to predecessors of p_s
+            # Environment is small (70 states), scan all; optimisation possible for larger tasks.
+            for b_s in range(self.n_states):
+                for b_a in range(self.n_actions):
+                    if self.n[b_s, b_a, p_s] == 0:
+                        continue
+                    b_r = self.Rsum[b_s, b_a, p_s] / self.n[b_s, b_a, p_s]
+                    priority_b = abs(b_r + self.gamma * np.max(self.Q_sa[s_next]) - self.Q_sa[b_s, b_a])
+                    if priority_b > self.priority_cutoff:
+                        self.queue.put((-priority_b, (b_s, b_a)))
 
+            planning_counter += 1
 
-    def evaluate(self, eval_env: WindyGridworld, n_eval_episodes=30,
-                 max_episode_length=100) -> float:
+    def evaluate(self, eval_env: WindyGridworld, n_eval_episodes: int = 30, max_episode_length: int = 100) -> float:
         returns = []
         for _ in range(n_eval_episodes):
             s = eval_env.reset()
             R_ep = 0
             for _ in range(max_episode_length):
-                a = np.argmax(self.Q_sa[s]) # greedy action selection
-                s_prime, reward, done = eval_env.step(a)
-                R_ep += reward
+                a = np.argmax(self.Q_sa[s])
+                s, r, done = eval_env.step(a)
+                R_ep += r
                 if done:
                     break
-                s = s_prime
             returns.append(R_ep)
-        return float(np.mean(returns))
+        return np.mean(returns)
+
 
 
 def test():
+
     n_timesteps = 10001
     gamma = 1.0
 
-    policy = 'ps'      # 'dyna' or 'ps'
+    # Algorithm parameters
+    policy = 'dyna' # or 'ps' 
     epsilon = 0.1
     learning_rate = 0.2
     n_planning_updates = 3
 
+    # Plotting parameters
     plot = True
     plot_optimal_policy = True
     step_pause = 0.0001
-
+    
+    # Initialize environment and policy
     env = WindyGridworld()
     if policy == 'dyna':
-        agent = DynaAgent(env.n_states, env.n_actions, learning_rate, gamma)
-    elif policy == 'ps':
-        agent = PrioritizedSweepingAgent(env.n_states, env.n_actions,
-                                         learning_rate, gamma)
+        pi = DynaAgent(env.n_states,env.n_actions,learning_rate,gamma) # Initialize Dyna policy
+    elif policy == 'ps':    
+        pi = PrioritizedSweepingAgent(env.n_states,env.n_actions,learning_rate,gamma) # Initialize PS policy
     else:
-        raise KeyError('Unknown policy')
-
-    s = env.reset()
-    continuous = False
-    for _ in range(n_timesteps):
-        a = agent.select_action(s, epsilon)
-        s_next, r, done = env.step(a)
-        agent.update(s, a, r, done, s_next, n_planning_updates)
-
+        raise KeyError('Policy {} not implemented'.format(policy))
+    
+    # Prepare for running
+    s = env.reset()  
+    continuous_mode = False
+    
+    for t in range(n_timesteps):            
+        # Select action, transition, update policy
+        a = pi.select_action(s,epsilon)
+        s_next,r,done = env.step(a)
+        pi.update(s=s,a=a,r=r,done=done,s_next=s_next,n_planning_updates=n_planning_updates)
+        
+        # Render environment
         if plot:
-            env.render(Q_sa=agent.Q_sa, plot_optimal_policy=plot_optimal_policy,
+            env.render(Q_sa=pi.Q_sa,plot_optimal_policy=plot_optimal_policy,
                        step_pause=step_pause)
+            
+        # Ask user for manual or continuous execution
+        if not continuous_mode:
+            key_input = input("Press 'Enter' to execute next step, press 'c' to run full algorithm")
+            continuous_mode = True if key_input == 'c' else False
 
-        if not continuous:
-            key = input("<Enter> next, 'c' continuous: ")
-            continuous = (key.lower() == 'c')
-        s = env.reset() if done else s_next
-
+        # Reset environment when terminated
+        if done:
+            s = env.reset()
+        else:
+            s = s_next
+            
+    
 if __name__ == '__main__':
     test()
