@@ -81,7 +81,6 @@ class DynaAgent:
 
 class PrioritizedSweepingAgent:
 
-    ############ MOD START: __init__ initialises queues and model tables ###
     def __init__(self, n_states: int, n_actions: int, learning_rate: float, gamma: float, priority_cutoff: float = 0.01):
         self.n_states = n_states
         self.n_actions = n_actions
