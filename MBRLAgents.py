@@ -17,6 +17,7 @@ class DynaAgent:
         self.n = np.zeros((n_states, n_actions, n_states)) # s,a,s' - number of visits
         self.Rsum = np.zeros((n_states, n_actions, n_states)) # s,a,s' - total reward
 
+
     def select_action(self, s: int, epsilon: float):
         if np.random.rand() < epsilon:
             return np.random.randint(self.n_actions)
@@ -24,6 +25,7 @@ class DynaAgent:
             max_q = np.max(self.Q_sa[s])
             max_actions = np.where(self.Q_sa[s] == max_q)[0]
             return np.random.choice(max_actions)
+
 
     def update(self, s: int, a: int, r: float, done: bool, s_next: int, n_planning_updates: int):
         # Direct (real) TD update -------------------------------------------
@@ -103,6 +105,7 @@ class PrioritizedSweepingAgent:
             max_actions = np.where(self.Q_sa[s] == max_q)[0]
             return np.random.choice(max_actions)
 
+
     def update(self, s: int, a: int, r: float, done: bool, s_next: int, n_planning_updates: int):
         # Direct (real) TD update -------------------------------------------
         target = r if done else r + self.gamma * np.max(self.Q_sa[s_next])
@@ -151,6 +154,7 @@ class PrioritizedSweepingAgent:
                         self.queue.put((-priority_b, (b_s, b_a)))
 
             planning_counter += 1
+
 
     def evaluate(self, eval_env: WindyGridworld, n_eval_episodes: int = 30, max_episode_length: int = 100) -> float:
         returns = []

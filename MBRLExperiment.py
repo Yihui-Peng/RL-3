@@ -18,7 +18,7 @@ epsilon = 0.1
 
 smooth_window = 11
 
-planning_list = [1, 3, 5]
+n_planning_updates = [1, 3, 5]
 wind_cases = {
     "stochastic": 0.9,
     "deterministic": 1.0
@@ -99,13 +99,13 @@ def experiment():
     for alg_key, AgentCls in agent_map.items():
         for wind_case, wind_prop in wind_cases.items():
             curves: dict[str, np.ndarray] = {
-                "K=0": baseline_curves[wind_case]
+                "n_planning_updates=0": baseline_curves[wind_case]
             }
             best_label, best_curve = None, None
             best_final = -np.inf
 
-            for n_plan in planning_list:
-                label = f"K={n_plan}"
+            for n_plan in n_planning_updates:
+                label = f"n_planning_updates={n_plan}"
                 print(f"Running {alg_key} | {wind_case} | {label} …")
                 mean_curve, avg_rt = run_batch(AgentCls, wind_prop, n_plan)
                 curves[label] = mean_curve
@@ -119,7 +119,7 @@ def experiment():
 
             # save per‑algorithm plot
             fname = f"{alg_key}_{wind_case}.png"
-            make_plot(f"{alg_key.upper()} — {wind_case}", steps_axis, curves, fname)
+            make_plot(f"Curves with {alg_key.upper()} — {wind_case}, wind={wind_prop}", steps_axis, curves, fname)
 
             if best_curve is not None:
                 best_curves[(alg_key, wind_case)] = (best_label, best_curve)
@@ -135,15 +135,23 @@ def experiment():
                 label, curve = best_curves[(alg_key, wind_case)]
                 comp_curves[f"{alg_key.upper()} ({label})"] = curve
         fname = f"compare_{wind_case}.png"
-        make_plot(f"Best comparison — {wind_case}", steps_axis, comp_curves, fname)
+        make_plot(f"Best comparison — {wind_case}, wind={wind_cases[wind_case]}", steps_axis, comp_curves, fname)
 
     # ------------------------------------------------------------------
     # Print runtime summary table
     print("\nAverage runtime per repetition (s):")
-    print("alg\twind\tK\truntime")
+    print("alg\twind\tn_planning_updates\truntime")
     for alg, wcase, k, rt in runtime_table:
         print(f"{alg}\t{wcase}\t{k}\t{rt:.3f}")
 
 
 if __name__ == "__main__":
     experiment()
+
+
+# To run the code:
+# python -m venv .venv
+# .\.venv\Scripts\Activate
+# python -m pip install --upgrade pip
+# pip install numpy matplotlib
+# pip install scipy
