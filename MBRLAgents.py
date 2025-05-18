@@ -104,7 +104,6 @@ class PrioritizedSweepingAgent:
             return np.random.choice(max_actions)
 
     def update(self, s: int, a: int, r: float, done: bool, s_next: int, n_planning_updates: int):
-        """Update model, push into priority queue, and perform up to K planning steps."""
         # Direct (real) TD update -------------------------------------------
         target = r if done else r + self.gamma * np.max(self.Q_sa[s_next])
         td_error = target - self.Q_sa[s, a]
