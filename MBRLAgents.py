@@ -59,7 +59,7 @@ class DynaAgent:
             # 4) estimate reward (mean)
             p_r = self.Rsum[p_s, p_a, p_s_next] / self.n[p_s, p_a, p_s_next]
             # 5) Q update
-            target_model = p_r + self.gamma * np.max(self.Q_sa[s_next])
+            target_model = p_r + self.gamma * np.max(self.Q_sa[p_s_next])
             self.Q_sa[p_s, p_a] += self.alpha * (target_model - self.Q_sa[p_s, p_a])
 
 
@@ -135,7 +135,7 @@ class PrioritizedSweepingAgent:
             p_r = self.Rsum[p_s, p_a, p_s_next] / self.n[p_s, p_a, p_s_next]
 
             # TD update for sampled pair
-            target_model = p_r + self.gamma * np.max(self.Q_sa[s_next])
+            target_model = p_r + self.gamma * np.max(self.Q_sa[p_s_next])
             td_model = target_model - self.Q_sa[p_s, p_a]
             self.Q_sa[p_s, p_a] += self.alpha * td_model
 
@@ -146,7 +146,7 @@ class PrioritizedSweepingAgent:
                     if self.n[b_s, b_a, p_s] == 0:
                         continue
                     b_r = self.Rsum[b_s, b_a, p_s] / self.n[b_s, b_a, p_s]
-                    priority_b = abs(b_r + self.gamma * np.max(self.Q_sa[s_next]) - self.Q_sa[b_s, b_a])
+                    priority_b = abs(b_r + self.gamma * np.max(self.Q_sa[p_s]) - self.Q_sa[b_s, b_a])
                     if priority_b > self.priority_cutoff:
                         self.queue.put((-priority_b, (b_s, b_a)))
 
