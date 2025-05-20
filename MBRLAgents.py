@@ -28,7 +28,6 @@ class DynaAgent:
 
 
     def update(self, s: int, a: int, r: float, done: bool, s_next: int, n_planning_updates: int):
-        # Direct (real) TD update -------------------------------------------
         target = r if done else r + self.gamma * np.max(self.Q_sa[s_next])
         td_error = target - self.Q_sa[s, a]
         self.Q_sa[s, a] += self.alpha * td_error
@@ -107,7 +106,7 @@ class PrioritizedSweepingAgent:
 
 
     def update(self, s: int, a: int, r: float, done: bool, s_next: int, n_planning_updates: int):
-        # Direct (real) TD update -------------------------------------------
+        # Compute priority p (Direct temporal-difference update)-------------------------------------------
         target = r if done else r + self.gamma * np.max(self.Q_sa[s_next])
         td_error = target - self.Q_sa[s, a]
         self.Q_sa[s, a] += self.alpha * td_error
@@ -169,6 +168,41 @@ class PrioritizedSweepingAgent:
                     break
             returns.append(R_ep)
         return np.mean(returns)
+
+
+
+class DynaUCBAgent(DynaAgent):
+    """
+    Shares exactly the same model-learning and planning machinery as `DynaAgent`,
+    but replaces ε-greedy exploration with an Upper-Confidence-Bound (UCB) rule:
+
+        a* = argmax_a  Q(s,a) + c · sqrt( ln N(s) / N(s,a) )
+
+    where
+        N(s)   = ∑_a N(s,a)               # total visits to state s
+        N(s,a) = ∑_{s'} n(s,a,s')         # visits to state–action pair (s,a)
+    The counts come straight from the empirical transition tally `self.n`.
+    """
+    
+    def __init__(self, n_states: int, n_actions: int, learning_rate: float, gamma: float, c: float = 2.0):
+        super().__init__(n_states, n_actions, learning_rate, gamma)
+        self.c = c
+
+    # the ε parameter is ignored here –– we use pure UCB.
+    def select_action(self, s: int, _unused: float = None) -> int:
+        """Pick an action via UCB (untried actions are forced to be tried first)."""
+        # Empirical visit counts:
+        # N(s,a) = Σ_{s'} n(s,a,s'),  shape = (n_actions,)
+        N_sa = self.n[s].sum(axis=1)
+
+        # If some action in this state has never been tried, explore it immediately.
+        if (N_sa == 0).any():
+            return np.random.choice(np.flatnonzero(N_sa == 0))
+
+        N_s = N_sa.sum()
+        ucb = self.Q_sa[s] + self.c * np.sqrt(np.log(N_s) / N_sa)
+        max_ucb = np.max(ucb)
+        return np.random.choice(np.flatnonzero(ucb == max_ucb))
 
 
 
