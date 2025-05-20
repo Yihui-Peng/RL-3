@@ -171,6 +171,7 @@ class PrioritizedSweepingAgent:
 
 
 
+# Bonus part
 class DynaUCBAgent(DynaAgent):
     """
     Shares exactly the same model-learning and planning machinery as `DynaAgent`,
